@@ -1,11 +1,14 @@
 const express = require("express");
 const router = express.Router();
-const dbPromise = require("../db/couch");
+const { useDb } = require("../db/couch");
 
 // CREATE
 router.post("/", async (req, res) => {
   try {
-    const db = await dbPromise;
+    const db = await useDb("sheets");
+	if (req.body._id === "") {
+		delete req.body._id;
+	}
     const result = await db.insert(req.body);
     res.json(result);
   } catch (err) {
