@@ -2,73 +2,152 @@ const express = require("express");
 const router = express.Router();
 const { useDb } = require("../db/couch");
 const authMiddleware = require("../middleware/authMiddleware");
+const { buildDocId } = require("../utils");
 
-// CREATE
+const dbName = "sheets";
+
+// --------------------
+// CREATE (POST) new entry
+// --------------------
 router.post("/", authMiddleware,async (req, res) => {
   try {
-    const db = await useDb("sheets");
+	const { title, items } = req.body; 
+    const db = await useDb(dbName);
+	const _id = buildDocId(userId, title);
+	const userId = req.user.id; // from decoded JWT
+	delete req.body.user;
 	if (req.body._id === "") {
 		delete req.body._id;
 	}
-	const userId = req.user.id; // from decoded JWT
-
-    const entry = {
-      ...req.body,
-      userId,
-      createdAt: Date.now()
+	if (!title) {
+      return res.status(400).json({ error: "Title required" });
+    }
+	try {
+      await db.get(_id);
+      return res.status(409).json({ error: "Document already exists" });
+    } catch (err) {
+      if (err.statusCode !== 404) throw err;
+    }
+	
+    const sheet = {
+      _id,
+	  user: userId,
+	  createdAt: Date.now(),
+	  items,
+      
     };
 
-    const result = await db.insert(entry);
+    const result = await db.insert(sheet);
     res.json(result);
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
 });
 
-// READ ALL
-router.get("/", async (req, res) => {
+
+// --------------------
+// READ all entries for user
+// --------------------
+router.get("/", authMiddleware, async (req, res) => {
   try {
-    const db = await dbPromise;
-    const docs = await db.list({ include_docs: true });
-    res.json(docs.rows.map(row => row.doc));
+    const db = await useDb(dbName);
+    const userId = req.user.id;
+
+    const result = await db.find({
+      selector: { user: userId },
+      sort: [{ _id: "asc" }]
+    });
+
+    const docs = result.docs.map(d => ({
+      id: d._id,
+      title: d.title,
+      items: d.items
+    }));
+
+    res.json(docs);
   } catch (err) {
+    console.error(err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// READ ONE
-router.get("/:id", async (req, res) => {
+// --------------------
+// READ one entry by title
+// --------------------
+router.get("/:title", authMiddleware, async (req, res) => {
   try {
-    const db = await dbPromise;
-    const doc = await db.get(req.params.id);
+    const db = await useDb(dbName);
+    const userId = req.user.id;
+    const title = req.params.title;
+
+    const _id = buildDocId(userId, title);
+    const doc = await db.get(_id);
+	delete doc.user;
     res.json(doc);
   } catch (err) {
     res.status(404).json({ error: "Not found" });
   }
 });
 
-// UPDATE
-router.put("/:id", async (req, res) => {
+// --------------------
+// UPDATE (PUT) existing entry
+// --------------------
+router.put("/", authMiddleware, async (req, res) => {
   try {
-    const db = await dbPromise;
-    const existing = await db.get(req.params.id);
-    const updated = { ...existing, ...req.body };
-    const result = await db.insert(updated);
-    res.json(result);
+    const { title, rev, items } = req.body; // client must provide latest _rev
+	const db = await useDb(dbName);
+	const _id = buildDocId(userId, title);
+	const userId = req.user.id; // from decoded JWT
+
+    if (!title || !rev) {
+      return res.status(400).json({ error: "Title and revision are required" });
+    }
+
+    let doc;
+    try {
+      doc = await db.get(_id);
+    } catch (err) {
+      if (err.statusCode === 404) return res.status(404).json({ error: "Document not found" });
+      throw err;
+    }
+
+    // Only allow update from latest revision
+    if (rev !== doc._rev) {
+      return res.status(409).json({
+        error: "Revision conflict. Reload latest document and try again.",
+        latest: { id: doc._id, title: doc.title, content: doc.content, rev: doc._rev }
+      });
+    }
+	// Update document
+    doc.items = items;
+	doc.lastModifiedAt = Date.now();
+    const response = await db.insert(doc); // CouchDB will increment _rev
+
+    res.json({ ok: true, id: response.id, rev: response.rev });
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    console.error(err);
+    res.status(500).json({ error: err.message });
   }
 });
 
-// DELETE
-router.delete("/:id", async (req, res) => {
+// --------------------
+// DELETE entry by title
+// --------------------
+router.delete("/:title", authMiddleware, async (req, res) => {
   try {
-    const db = await dbPromise;
-    const doc = await db.get(req.params.id);
-    const result = await db.destroy(doc._id, doc._rev);
-    res.json(result);
+    const db = await useDb(dbName);
+    const userId = req.user.id;
+    const title = req.params.title;
+
+    const _id = buildDocId(userId, title);
+    const doc = await db.get(_id);
+    const response = await db.destroy(doc._id, doc._rev);
+
+    res.json({ ok: true, id: response.id, rev: response.rev });
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    console.error(err);
+    if (err.statusCode === 404) return res.status(404).json({ error: "Not found" });
+    res.status(500).json({ error: err.message });
   }
 });
 

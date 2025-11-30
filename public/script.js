@@ -21,6 +21,7 @@ function newLogsheet() {
     document.getElementById('modified-at').value = '';
     document.getElementById('items-container').innerHTML = '';
     document.getElementById('logsheet-id').value = '';
+	document.getElementById('logsheet-rev').value = '';
 
 }
 
@@ -413,6 +414,7 @@ async function saveLogsheet() {
     const title = document.getElementById('logsheet-title').value;
     const author = document.getElementById('logsheet-author').value;
     const logsheetId = document.getElementById('logsheet-id').value;
+	const logsheetRev = document.getElementById('logsheet-rev').value;
 	const token = localStorage.getItem('token');
     let createdAt = document.getElementById('created-at').value;
     const modifiedAt = new Date().toLocaleString();
@@ -458,6 +460,7 @@ async function saveLogsheet() {
 
     const logsheet = {
         _id: logsheetId,
+		_rev: logsheetRev,
         title,
         author,
         created_at: createdAt,
@@ -477,6 +480,7 @@ async function saveLogsheet() {
     const jsonData = await response.json();
     if (jsonData.ok) {
         document.getElementById('logsheet-id').value = jsonData.id.toString();
+		document.getElementById('logsheet-rev').value = jsonData.rev.toString();
         alert("Saved!");
         document.getElementById("floating-save-button").style.display = "none";
     } else {
@@ -512,9 +516,10 @@ async function renderLogsheet(logsheet) {
 
         document.getElementById('logsheet-title').value = logsheet.title || '';
         document.getElementById('logsheet-author').value = logsheet.author || '';
-        document.getElementById('created-at').value = logsheet.created_at || '';
-        document.getElementById('modified-at').value = logsheet.last_modified_at || '';
+        document.getElementById('created-at').value = logsheet.createdAt || '';
+        document.getElementById('modified-at').value = logsheet.lastModifiedAt || '';
         document.getElementById('logsheet-id').value = logsheet._id;
+		document.getElementById('logsheet-rev').value = logsheet._rev;
 
         document.getElementById('items-container').innerHTML = '';
         document.getElementById("floating-save-button").style.display = "none";
